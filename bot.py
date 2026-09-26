@@ -1,4 +1,3 @@
-
 import asyncio
 import os
 
@@ -18,12 +17,7 @@ load_dotenv()
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 SESSION_STRING = os.getenv("TELETHON_SESSION")
-
-# Залишаємо так само, як у нашому робочому Muzychi
 BOT_TOKEN = os.getenv("bot_token")
-
-# ID конкретної людини
-RAW_USER_CHAT_ID = os.getenv("USER_CHAT_ID", "").strip()
 
 
 # Перевіряємо змінні Railway
@@ -39,22 +33,11 @@ if not SESSION_STRING:
 if not BOT_TOKEN:
     raise ValueError("Не знайдено bot_token у Railway Variables.")
 
-if not RAW_USER_CHAT_ID:
-    raise ValueError("Не знайдено USER_CHAT_ID у Railway Variables.")
-
-
-try:
-    USER_CHAT_ID = int(RAW_USER_CHAT_ID)
-except ValueError:
-    raise ValueError("USER_CHAT_ID повинен бути числом.")
-
 
 # ============================================================
 # 2. TELETHON STRING SESSION
 # ============================================================
 
-# Прибираємо лише випадкові пробіли/лапки по краях.
-# Нічого до StringSession не додаємо.
 SESSION_STRING = SESSION_STRING.strip().strip('"').strip("'")
 
 
@@ -65,7 +48,6 @@ try:
         API_HASH
     )
 except Exception as e:
-    # Сам TELETHON_SESSION у лог НЕ виводимо.
     raise ValueError(
         f"Не вдалося прочитати TELETHON_SESSION: "
         f"{type(e).__name__}: {e}"
@@ -73,33 +55,54 @@ except Exception as e:
 
 
 # ============================================================
-# 3. ДЖЕРЕЛО ТА КЛЮЧОВІ СЛОВА
+# 3. ДЖЕРЕЛО
 # ============================================================
 
 CHANNELS_TO_WATCH = ["airalarm_kyiv"]
 
-# Ці слова потім можеш спокійно змінювати сам.
-KEYWORDS = [
-   
-    "ракета",
-    "бпла",
-    "ракети",
-    "балістика",
-    "кинджал",
-    "крилата",
 
-]
+# ============================================================
+# 4. CHAT ID ТА КЛЮЧОВІ СЛОВА
+# ============================================================
+
+USERS = {
+
+    628890725: [
+        "ракета",
+        "бпла",
+        "ракети",
+        "балістика",
+        "кинджал",
+        "крилата",
+    ],
+
+    # 123456789: [
+    #     "ключове слово",
+    #     "ключове слово",
+    # ],
+
+    # 123456789: [
+    #     "ключове слово",
+    #     "ключове слово",
+    # ],
+
+    # 123456789: [
+    #     "ключове слово",
+    #     "ключове слово",
+    # ],
+
+}
 
 
 # ============================================================
-# 4. ЧЕРГА ПОВІДОМЛЕНЬ
+# 5. ЧЕРГА ПОВІДОМЛЕНЬ
 # ============================================================
 
 message_queue = asyncio.Queue()
 
 
 # ============================================================
-# 5. СЛУХАЄМО airalarm_kyiv
+# 6. СЛУХАЄМО airalarm_kyiv
 # ============================================================
 
 @client.on(events.NewMessage(chats=CHANNELS_TO_WATCH))
@@ -112,21 +115,28 @@ async def handler(event):
 
     text_lower = message_text.lower()
 
-    if any(keyword in text_lower for keyword in KEYWORDS):
+    for chat_id, keywords in USERS.items():
 
-        print("[!] Знайдено повідомлення з ключовим словом.")
+        if any(keyword.lower() in text_lower for keyword in keywords):
 
-        text_to_send = (
-            "🔔 Повітряна тривога Київ\n"
-            "━━━━━━━━━━━━━━━\n\n"
-            f"{message_text}"
-        )
+            print(
+                f"[!] Знайдено повідомлення для "
+                f"Telegram ID {chat_id}."
+            )
 
-        await message_queue.put(text_to_send)
+            text_to_send = (
+                "🔔 Повітряна тривога Київ\n"
+                "━━━━━━━━━━━━━━━\n\n"
+                f"{message_text}"
+            )
+
+            await message_queue.put(
+                (chat_id, text_to_send)
+            )
 
 
 # ============================================================
-# 6. ВІДПРАВЛЕННЯ ЛЮДИНІ В ОСОБИСТІ
+# 7. ВІДПРАВЛЕННЯ ПОВІДОМЛЕНЬ
 # ============================================================
 
 async def message_sender_worker():
@@ -139,24 +149,25 @@ async def message_sender_worker():
 
         while True:
 
-            text = await message_queue.get()
+            chat_id, text = await message_queue.get()
 
             try:
 
                 await bot.send_message(
-                    chat_id=USER_CHAT_ID,
+                    chat_id=chat_id,
                     text=text
                 )
 
                 print(
                     f"[+] Повідомлення успішно надіслано "
-                    f"користувачу ID {USER_CHAT_ID}"
+                    f"в Telegram ID {chat_id}"
                 )
 
             except Exception as e:
 
                 print(
-                    f"[-] Помилка надсилання повідомлення: "
+                    f"[-] Помилка надсилання повідомлення "
+                    f"в Telegram ID {chat_id}: "
                     f"{type(e).__name__}: {e}"
                 )
 
@@ -177,18 +188,18 @@ async def message_sender_worker():
 
 
 # ============================================================
-# 7. WEB-СЕРВЕР ДЛЯ RAILWAY
+# 8. WEB-СЕРВЕР ДЛЯ RAILWAY
 # ============================================================
 
 async def handle_web(request):
 
     return web.Response(
-        text="Personal Alert Bot працює."
+        text="Regional Alert Bot працює."
     )
 
 
 # ============================================================
-# 8. ЗАПУСК TELETHON
+# 9. ЗАПУСК TELETHON
 # ============================================================
 
 async def start_telegram_background(app):
@@ -217,6 +228,10 @@ async def start_telegram_background(app):
         "та перевіряємо ключові слова."
     )
 
+    print(
+        f"[+] Налаштовано отримувачів: {len(USERS)}"
+    )
+
     app["tg_task"] = asyncio.create_task(
         client.run_until_disconnected()
     )
@@ -227,7 +242,7 @@ async def start_telegram_background(app):
 
 
 # ============================================================
-# 9. КОРЕКТНЕ ЗАВЕРШЕННЯ
+# 10. КОРЕКТНЕ ЗАВЕРШЕННЯ
 # ============================================================
 
 async def stop_telegram_background(app):
@@ -261,7 +276,7 @@ async def stop_telegram_background(app):
 
 
 # ============================================================
-# 10. AIOHTTP APP
+# 11. AIOHTTP APP
 # ============================================================
 
 def make_app():
@@ -277,7 +292,7 @@ def make_app():
 
 
 # ============================================================
-# 11. ЗАПУСК НА RAILWAY
+# 12. ЗАПУСК НА RAILWAY
 # ============================================================
 
 if __name__ == "__main__":
